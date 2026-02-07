@@ -2,7 +2,7 @@ name: Agriculture Data Sync
 
 on:
   schedule:
-    - [cite_start]cron: '13 * * * *' # 每小时第 13 分钟 [cite: 3]
+    - cron: '13 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency: 
       group: weather-sync
-      [cite_start]cancel-in-progress: false # 严格串行 [cite: 4]
+      cancel-in-progress: false
 
     steps:
       - name: Checkout
