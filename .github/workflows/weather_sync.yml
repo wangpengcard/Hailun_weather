@@ -1,0 +1,55 @@
+name: Heji Agriculture Weather Sync
+
+on:
+  schedule:
+    # 严格设定为每小时运行一次（每小时的第13分钟，避开拥堵）
+    - cron: '13 * * * *'
+  workflow_dispatch: # 保留手动触发功能，方便测试
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # 必须拉取完整历史，否则 push 会失败
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Configure Git
+      run: |
+        # 必须在操作前配置身份信息
+        git config --local user.email "bot@github.com"
+        git config --local user.name "github-actions[bot]"
+
+    - name: Pull latest changes
+      run: |
+        # 在脚本运行前先拉取远程更新，此时工作区是干净的，不会报 128 错误
+        git pull --rebase origin main
+
+    - name: Run fetch_weather.py
+      env:
+        # 确保你在 GitHub Secrets 中配置了 OWM_API_KEY
+        OWM_API_KEY: ${{ secrets.OWM_API_KEY }}
+      run: python fetch_weather.py
+
+    - name: Commit and Push changes
+      run: |
+        # 严格检查文件改动，只有有新数据时才提交
+        git add .
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Auto-update weather data: $(date +'%Y-%m-%d %H:%M')"
+          git push origin main
+        fi
