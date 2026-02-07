@@ -8,22 +8,22 @@
     "moon_phase": 0.68,
     "summary": "You can expect partly cloudy in the morning, with clearing in the afternoon",
     "temp": {
-      "day": -18.88,
+      "day": -18.72,
       "min": -27.17,
-      "max": -16.97,
+      "max": -17.32,
       "night": -22.11,
-      "eve": -19.31,
+      "eve": -19.02,
       "morn": -27.02
     },
     "feels_like": {
-      "day": -24.43,
+      "day": -24.24,
       "night": -29.11,
-      "eve": -24.91,
+      "eve": -24.57,
       "morn": -27.02
     },
-    "pressure": 1031,
-    "humidity": 75,
-    "dew_point": -21.87,
+    "pressure": 1030,
+    "humidity": 71,
+    "dew_point": -22.27,
     "wind_speed": 3.57,
     "wind_deg": 298,
     "wind_gust": 6.22,
@@ -35,7 +35,7 @@
         "icon": "04d"
       }
     ],
-    "clouds": 63,
+    "clouds": 69,
     "pop": 0,
     "uvi": 1.31
   },
