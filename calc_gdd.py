@@ -7,19 +7,23 @@ def run_calculation():
     target_file = 'GDD_2026.csv'
     
     if not os.path.exists(source_file):
+        print(f"找不到源文件: {source_file}")
         return
 
-    # 1. 自动获取北京时间昨天的日期 (适配 2026/2/7 这种格式)
+    # 1. 自动获取北京时间昨天的日期
+    # 修改为 .strftime('%Y-%m-%d') 以确保识别 YYYY-MM-DD 格式（如 2026-02-07）
     yesterday = (datetime.utcnow() + timedelta(hours=8) - timedelta(days=1))
-    target_date = f"{yesterday.year}/{yesterday.month}/{yesterday.day}"
+    target_date = yesterday.strftime('%Y-%m-%d')
     print(f"目标日期: {target_date}")
 
     # 2. 读取并筛选
     df = pd.read_csv(source_file)
+    
+    # 确保 CSV 中的日期列也是字符串匹配
     day_data = df[df['date'] == target_date]
     
     if day_data.empty:
-        print("未找到昨日数据，跳过计算。")
+        print(f"未找到 {target_date} 的数据，跳过计算。")
         return
 
     # 3. 计算结果列表
@@ -49,7 +53,7 @@ def run_calculation():
             'eff_add': eff_val
         })
 
-    # 4. 写入文件（保持 utf-8-sig）
+    # 4. 写入文件（保持 utf-8-sig 以便 Excel 正确显示中文）
     new_df = pd.DataFrame(results)
     
     if os.path.exists(target_file) and os.path.getsize(target_file) > 0:
@@ -61,7 +65,7 @@ def run_calculation():
         final_df = new_df
 
     final_df.to_csv(target_file, index=False, encoding='utf-8-sig')
-    print("GDD_2026.csv 更新成功。")
+    print(f"成功计算并更新 {target_date} 的数据至 {target_file}。")
 
 if __name__ == "__main__":
     run_calculation()
