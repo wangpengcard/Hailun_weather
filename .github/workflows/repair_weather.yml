@@ -1,0 +1,53 @@
+name: Daily Weather Data Repair
+
+on:
+  schedule:
+    # 北京时间 04:00 等于 UTC 前一天 20:00
+    - cron: '0 20 * * *'
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    # 必须赋予写入权限以更新 CSV
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        pip install pandas requests
+
+    - name: Configure Git
+      run: |
+        git config --local user.email "bot@github.com"
+        git config --local user.name "github-actions[bot]"
+
+    - name: Pull latest changes
+      run: |
+        git pull --rebase origin main
+
+    - name: Run repair_weather.py
+      env:
+        OWM_API_KEY: ${{ secrets.OWM_API_KEY }}
+      run: python repair_weather.py
+
+    - name: Commit and Push changes
+      run: |
+        git add .
+        if git diff --staged --quiet; then
+          echo "No missing data found, nothing to commit."
+        else
+          git commit -m "Auto-repair missing weather data: $(date +'%Y-%m-%d')"
+          git push origin main
+        fi
