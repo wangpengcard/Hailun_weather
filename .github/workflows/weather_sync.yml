@@ -2,8 +2,8 @@ name: Heji Agriculture Weather Sync
 
 on:
   schedule:
-    # 严格设定为每小时运行一次（每小时的第27分钟，避开拥堵）
-    - cron: '27 * * * *'
+    # 严格设定为每小时运行一次（每小时的第43分钟，避开拥堵）
+    - cron: '43 * * * *'
   workflow_dispatch: # 保留手动触发功能，方便测试
 
 jobs:
