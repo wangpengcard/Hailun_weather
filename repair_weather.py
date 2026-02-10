@@ -17,7 +17,7 @@ def get_beijing_now():
     return datetime.now(timezone(timedelta(hours=8)))
 
 def update_quota(increment=0):
-    """管理 API 配额计数器 (与 fetch_weather.py 逻辑同步)"""
+    """管理 API 配额计数器"""
     now_utc = datetime.now(timezone.utc)
     today_utc = now_utc.strftime('%Y-%m-%d')
     
@@ -41,7 +41,7 @@ def update_quota(increment=0):
 def repair_weather():
     api_key = os.getenv('OWM_API_KEY')
     if not api_key:
-        print("Error: OWM_API_KEY not found.")
+        print("Error: OWM_API_KEY env variable missing.")
         return
 
     # 1. 确定核查日期：北京时间的昨天
@@ -52,7 +52,7 @@ def repair_weather():
 
     # 2. 读取基础数据
     if not os.path.exists(CSV_FILE) or not os.path.exists(TOWNS_FILE):
-        print("Error: 2026.csv or towns.csv missing.")
+        print(f"Error: Required files ({CSV_FILE} or {TOWNS_FILE}) missing.")
         return
 
     towns_df = pd.read_csv(TOWNS_FILE)
@@ -63,7 +63,7 @@ def repair_weather():
     current_usage = update_quota(0)
 
     for _, town in towns_df.iterrows():
-        # 获取该镇昨天的已有时间点
+        # 获取该镇目标日期的已有时间点
         town_data = df_history[(df_history['town_id'] == town['town_id']) & (df_history['date'] == target_date)]
         existing_hours = set(town_data['time'].tolist())
         
@@ -71,91 +71,82 @@ def repair_weather():
         for h in range(24):
             time_str = f"{h:02d}:00"
             if time_str not in existing_hours:
-                # 触发熔断检查
                 if current_usage >= QUOTA_LIMIT:
-                    print("Warning: API quota limit reached. Stopping repair.")
+                    print("Warning: API quota limit reached. Stopping repair process.")
                     break
                 
-                # 4. 调用 TimeMachine 接口
+                # 4. 调用 One Call 3.0 TimeMachine 接口
                 dt_obj = datetime.strptime(f"{target_date} {time_str}", '%Y-%m-%d %H:%M')
                 dt_obj = dt_obj.replace(tzinfo=timezone(timedelta(hours=8)))
                 timestamp = int(dt_obj.timestamp())
 
                 try:
+                    # 严格遵循 3.0 官网规则路径
                     url = f"https://api.openweathermap.org/data/3.0/onecall/timemachine?lat={town['lat']}&lon={town['lon']}&dt={timestamp}&appid={api_key}&units=metric&lang=zh_cn"
-                    resp = requests.get(url, timeout=15).json()
+                    
+                    response = requests.get(url, timeout=15)
                     current_usage = update_quota(1)
 
-                    if 'data' in resp and len(resp['data']) > 0:
-                        data = resp['data'][0]
-                        record = {
-                            "town_name": town["town_name"],
-                            "town_id": town["town_id"],
-                            "date": target_date,
-                            "time": time_str,
-                            "temp": data.get('temp', 0),
-                            "pressure": data.get('pressure', 0),
-                            "humidity": data.get('humidity', 0),
-                            "dew_point": data.get('dew_point', 0),
-                            "clouds": data.get('clouds', 0),
-                            "uvi": data.get('uvi', 0),
-                            "visibility": data.get('visibility', 0),
-                            "wind_speed": data.get('wind_speed', 0),
-                            "wind_gust": data.get('wind_gust', data.get('wind_speed', 0)),
-                            "wind_deg": data.get('wind_deg', 0),
-                            "rain": data.get('rain', 0) if isinstance(data.get('rain'), (int, float)) else data.get('rain', {}).get('1h', 0),
-                            "snow": data.get('snow', 0) if isinstance(data.get('snow'), (int, float)) else data.get('snow', {}).get('1h', 0),
-                            "weather_desc": data.get('weather', [{}])[0].get('description', '未知'),
-                            "flag": 0
-                        }
-                        new_repairs.append(record)
-                        print(f"Repaired: {town['town_name']} @ {time_str}")
+                    if response.status_code == 200:
+                        data_root = response.json()
+                        if 'data' in data_root and len(data_root['data']) > 0:
+                            data = data_root['data'][0]
+                            record = {
+                                "town_name": town["town_name"],
+                                "town_id": town["town_id"],
+                                "date": target_date,
+                                "time": time_str,
+                                "temp": data.get('temp', 0),
+                                "pressure": data.get('pressure', 0),
+                                "humidity": data.get('humidity', 0),
+                                "dew_point": data.get('dew_point', 0),
+                                "clouds": data.get('clouds', 0),
+                                "uvi": data.get('uvi', 0),
+                                "visibility": data.get('visibility', 0),
+                                "wind_speed": data.get('wind_speed', 0),
+                                "wind_gust": data.get('wind_gust', data.get('wind_speed', 0)),
+                                "wind_deg": data.get('wind_deg', 0),
+                                "rain": data.get('rain', 0) if isinstance(data.get('rain'), (int, float)) else data.get('rain', {}).get('1h', 0),
+                                "snow": data.get('snow', 0) if isinstance(data.get('snow'), (int, float)) else data.get('snow', {}).get('1h', 0),
+                                "weather_desc": data.get('weather', [{}])[0].get('description', '未知'),
+                                "flag": 0
+                            }
+                            new_repairs.append(record)
+                            print(f"Repaired: {town['town_name']} @ {time_str}")
+                    else:
+                        print(f"API Error [{response.status_code}] for {town['town_id']} at {time_str}: {response.text}")
                     
-                    time.sleep(0.1)
+                    time.sleep(0.12) # 稍微增加延迟，保护 API
 
                 except Exception as e:
-                    print(f"Error fetching repair data for {town['town_id']} at {time_str}: {e}")
+                    print(f"Unexpected error for {town['town_id']} at {time_str}: {e}")
         
         if current_usage >= QUOTA_LIMIT: break
 
-    # 5. 合并、整理并保存 CSV (强制执行去重和排序)
+    # 5. 合并并持久化
     if new_repairs:
         df_new = pd.DataFrame(new_repairs)
-        df_final = pd.concat([df_history, df_new])
-        print(f"Successfully repaired {len(new_repairs)} records.")
+        df_history = pd.concat([df_history, df_new])
+        print(f"Successfully repaired {len(new_repairs)} missing records.")
     else:
-        df_final = df_history
-        print("No missing records found for yesterday.")
+        print("No missing records were repaired today.")
 
-    # 物理清洁：去重（保留最新的修复点）并按时间排序
-    df_final = df_final.drop_duplicates(subset=['town_id', 'date', 'time'], keep='last')
-    df_final = df_final.sort_values(by=['date', 'time', 'town_id'], ascending=[True, True, True])
-    
-    # 持久化 CSV
-    df_final.to_csv(CSV_FILE, index=False, encoding='utf-8-sig')
+    # 数据清洁：按时间去重并排序
+    df_history = df_history.drop_duplicates(subset=['town_id', 'date', 'time'], keep='last')
+    df_history = df_history.sort_values(by=['date', 'time', 'town_id'], ascending=[True, True, True])
+    df_history.to_csv(CSV_FILE, index=False, encoding='utf-8-sig')
 
-    # 6. 重建 JSON 缓存 (最近 720 小时滚动)
-    print("Rebuilding 2026.json cache (720h rolling)...")
-    
-    # 转换为 datetime 以便计算时间窗口
-    df_final['dt_temp'] = pd.to_datetime(df_final['date'] + ' ' + df_final['time'])
-    
-    # 计算北京时间 720 小时前的截止点
+    # 6. 更新 JSON 缓存 (720h 滚动)
+    print("Updating JSON cache...")
+    df_history['dt_temp'] = pd.to_datetime(df_history['date'] + ' ' + df_history['time'])
     cutoff_time = bj_now.replace(tzinfo=None) - timedelta(hours=720)
+    df_rolling = df_history[df_history['dt_temp'] >= cutoff_time].copy().drop(columns=['dt_temp'])
     
-    # 截取数据并按 town_id 分组
-    df_rolling = df_final[df_final['dt_temp'] >= cutoff_time].copy()
-    df_rolling = df_rolling.drop(columns=['dt_temp'])
-    
-    grouped_json = {}
-    for town_id, group in df_rolling.groupby('town_id'):
-        grouped_json[str(town_id)] = group.to_dict('records')
-        
-    # 覆盖写入 JSON
+    grouped_json = {str(tid): group.to_dict('records') for tid, group in df_rolling.groupby('town_id')}
     with open(JSON_FILE, 'w', encoding='utf-8') as f:
         json.dump(grouped_json, f, ensure_ascii=False, indent=2)
     
-    print(f"Repair process complete. 2026.json updated with records since {cutoff_time.strftime('%Y-%m-%d %H:%M')}")
+    print("Repair process complete.")
 
 if __name__ == "__main__":
     repair_weather()
