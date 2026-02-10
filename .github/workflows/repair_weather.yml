@@ -9,7 +9,6 @@ on:
 jobs:
   repair:
     runs-on: ubuntu-latest
-    # 必须赋予写入权限以更新 CSV
     permissions:
       contents: write
 
@@ -17,7 +16,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 0 # 获取完整历史记录，这是执行 rebase 的先决条件
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -35,6 +34,7 @@ jobs:
 
     - name: Pull latest changes
       run: |
+        # 第一道同步：开始修补前拉取最新数据
         git pull --rebase origin main
 
     - name: Run repair_weather.py
@@ -45,9 +45,17 @@ jobs:
     - name: Commit and Push changes
       run: |
         git add .
+        # 只有在产生新数据时才提交
         if git diff --staged --quiet; then
-          echo "No missing data found, nothing to commit."
+          echo "No missing records found, nothing to commit."
         else
           git commit -m "Auto-repair missing weather data: $(date +'%Y-%m-%d')"
+          
+          # 【第二道同步：核心防错方案】
+          # 如果 repair_weather.py 运行期间有其它任务提交了数据，此处再次同步
+          echo "Merging remote changes before pushing..."
+          git pull --rebase origin main
+          
+          echo "Pushing changes to GitHub..."
           git push origin main
         fi
