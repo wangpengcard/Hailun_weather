@@ -1,61 +1,101 @@
 name: Daily Weather Data Repair
 
 on:
-  schedule:
-    # 北京时间 02:47 等于 UTC 前一天 18:47
-    - cron: '47 18 * * *'
-  workflow_dispatch: # 支持手动触发
+  workflow_run:
+    workflows: ["Heji Agriculture Weather Sync"]
+    types:
+      - completed
+  workflow_dispatch: # 保持手动触发，不受时间限制
 
 jobs:
   repair:
+    # 只有当同步任务成功时才考虑触发
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0 # 获取完整历史记录，这是执行 rebase 的先决条件
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        pip install pandas requests
-
-    - name: Configure Git
-      run: |
-        git config --local user.email "bot@github.com"
-        git config --local user.name "github-actions[bot]"
-
-    - name: Pull latest changes
-      run: |
-        # 第一道同步：开始修补前拉取最新数据
-        git pull --rebase origin main
-
-    - name: Run repair_weather.py
-      env:
-        OWM_API_KEY: ${{ secrets.OWM_API_KEY }}
-      run: python repair_weather.py
-
-    - name: Commit and Push changes
-      run: |
-        git add .
-        # 只有在产生新数据时才提交
-        if git diff --staged --quiet; then
-          echo "No missing records found, nothing to commit."
-        else
-          git commit -m "Auto-repair missing weather data: $(date +'%Y-%m-%d')"
+      - name: Check if repair should run today
+        id: check_gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CURRENT_HOUR=$(date -u +%H)
+          TODAY_DATE=$(date -u +%Y-%m-%d)
           
-          # 【第二道同步：核心防错方案】
-          # 如果 repair_weather.py 运行期间有其它任务提交了数据，此处再次同步
-          echo "Merging remote changes before pushing..."
-          git pull --rebase origin main
+          echo "Current UTC hour: $CURRENT_HOUR"
           
-          echo "Pushing changes to GitHub..."
-          git push origin main
-        fi
+          # 1. 基础门槛：必须是 UTC 18:00 之后
+          if [ "$CURRENT_HOUR" -lt 18 ]; then
+            echo "Condition not met: Current time is before UTC 18:00."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 2. 查重逻辑：检查今天是否有已经成功的 repair 记录
+          # 查询同名 workflow 在今天的成功记录数量
+          SUCCESS_COUNT=$(gh run list \
+            --workflow "Daily Weather Data Repair" \
+            --status success \
+            --created "$TODAY_DATE" \
+            --limit 5 | wc -l)
+
+          if [ "$SUCCESS_COUNT" -gt 0 ]; then
+            echo "Condition not met: A successful repair has already run today ($TODAY_DATE)."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "Condition met: First success after 18:00 today. Proceeding..."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait for 5 minutes
+        if: steps.check_gate.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+        run: sleep 300
+
+      - name: Checkout code
+        if: steps.check_gate.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        if: steps.check_gate.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        if: steps.check_gate.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+        run: pip install pandas requests
+
+      - name: Configure Git
+        if: steps.check_gate.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config --local user.email "bot@github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Pull latest changes
+        if: steps.check_gate.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+        run: git pull --rebase origin main
+
+      - name: Run repair_weather.py
+        if: steps.check_gate.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          OWM_API_KEY: ${{ secrets.OWM_API_KEY }}
+        run: python repair_weather.py
+
+      - name: Commit and Push changes
+        if: steps.check_gate.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          git add .
+          if git diff --staged --quiet; then
+            echo "No missing records found."
+          else
+            git commit -m "Auto-repair missing weather data: $(date +'%Y-%m-%d')"
+            echo "Merging remote changes..."
+            git pull --rebase origin main
+            git push origin main
+          fi
