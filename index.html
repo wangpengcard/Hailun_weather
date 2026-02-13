@@ -355,11 +355,23 @@ createApp({
         const updateDetail = (r) => {
             if (!r) return;
             Object.assign(sel, { 
-                temp: r.temp, rain: r.rain, wind_speed: r.wind_speed, wind_gust: r.wind_gust,
-                dir: getWindDirText(r.wind_deg), wind_deg: r.wind_deg, humidity: r.humidity, 
-                pressure: r.pressure, dew_point: r.dew_point, weather_desc: r.weather_desc, 
-                uvi: r.uvi, visibility: r.visibility, clouds: r.clouds, snow: r.snow,
-                flag_desc: r.flag === 1 ? '未来预测' : '历史实况', time: r.time, date: r.date 
+                temp: r.temp, 
+                rain: r.rain, 
+                wind_speed: r.wind_speed, 
+                wind_gust: r.wind_gust,
+                dir: getWindDirText(r.wind_deg), 
+                wind_deg: r.wind_deg, 
+                humidity: r.humidity, 
+                pressure: r.pressure, 
+                dew_point: r.dew_point, 
+                weather_desc: r.weather_desc, 
+                uvi: r.uvi, 
+                visibility: r.visibility, 
+                clouds: r.clouds, 
+                snow: r.snow,
+                flag_desc: r.flag === 1 ? '未来预测' : '历史实况', 
+                time: r.time, 
+                date: r.date 
             });
             const b = getBeaufort(r.wind_speed);
             sel.wf = b !== null ? b + '级' : '--'; 
