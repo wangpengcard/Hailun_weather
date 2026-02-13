@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>玉米种植环境逆境预测看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        :root {
+            --bg-body: #020617; --bg-panel: #1e293b; --text-main: #f8fcaf;
+            --text-dim: #94a3b8; --accent: #3b82f6; --danger: #ef4444;
+            --warning: #f59e0b; --success: #10b981; --neutral: #64748b;
+        }
+        * { box-sizing: border-box; }
+        body, html { 
+            margin: 0; padding: 0; width: 100vw; height: 100vh; 
+            overflow: hidden; font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: var(--bg-body); color: var(--text-main);
+        }
+        #app { display: flex; flex-direction: column; height: 100%; padding: 10px; gap: 10px; }
+        .header { display: flex; justify-content: space-between; align-items: center; background: var(--bg-panel); padding: 10px 20px; border-radius: 8px; border-left: 4px solid var(--accent); }
+        .conn-status { font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+        .status-on { background: rgba(16,185,129,0.2); color: var(--success); }
+        .status-off { background: rgba(239,68,68,0.2); color: var(--danger); }
+        .main-content { display: flex; flex: 1; gap: 10px; min-height: 0; }
+        .left-panel { width: 300px; display: flex; flex-direction: column; gap: 10px; }
+        .card { background: var(--bg-panel); border-radius: 8px; padding: 15px; flex: 1; display: flex; flex-direction: column; }
+        .card-title { font-size: 14px; color: var(--text-dim); margin-bottom: 10px; display: flex; align-items: center; gap: 5px; }
+        select { background: #0f172a; color: #fff; border: 1px solid #334155; padding: 8px; border-radius: 4px; width: 100%; outline: none; }
+        .stage-btn { padding: 8px; border: 1px solid #334155; border-radius: 4px; cursor: pointer; text-align: center; margin-bottom: 5px; font-size: 13px; transition: 0.3s; }
+        .stage-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+        .right-panel { flex: 1; background: var(--bg-panel); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; }
+        #chart { flex: 1; width: 100%; }
+        .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+        .info-item { background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; }
+        .val { font-size: 18px; font-weight: bold; margin-top: 5px; display: block; }
+        .unit { font-size: 12px; color: var(--text-dim); margin-left: 4px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <div style="font-size: 20px; font-weight: bold; letter-spacing: 1px;">玉米种植环境逆境预测看板 <span style="font-size: 12px; color: var(--accent);">v4.6 Pages</span></div>
+            <div :class="['conn-status', isConnected ? 'status-on' : 'status-off']">
+                {{ isConnected ? '● 数据同步中' : '○ 已断开' }}
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="card" style="flex: 0 0 auto;">
+                    <div class="card-title">📍 选择观测点</div>
+                    <select v-model="selectedId">
+                        <option v-for="t in towns" :key="t.id" :value="t.id">{{ t.name }}</option>
+                    </select>
+                </div>
+
+                <div class="card" style="flex: 0 0 auto;">
+                    <div class="card-title">📅 生育阶段 (影响逆境算法)</div>
+                    <div v-for="(name, key) in STAGES" :key="key" 
+                         :class="['stage-btn', currentStage === key ? 'active' : '']"
+                         @click="currentStage = key">
+                        {{ name }}
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">⚠️ 当前逆境分析</div>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span style="font-size: 12px; color: var(--text-dim);">实时温度</span>
+                            <span class="val">{{ currentData.temp || '--' }}<span class="unit">°C</span></span>
+                        </div>
+                        <div class="info-item">
+                            <span style="font-size: 12px; color: var(--text-dim);">降水概率</span>
+                            <span class="val">{{ currentData.pop || '0' }}<span class="unit">%</span></span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                        <div style="font-size: 12px; color: var(--text-dim);">状态提醒：</div>
+                        <div style="font-size: 14px; margin-top: 5px; font-weight: bold; color: var(--success);">
+                            {{ riskMessage }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="card-title">📈 未来 48 小时环境趋势预测 (双轴图)</div>
+                <div id="chart"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, watch, computed } = Vue;
+
+        createApp({
+            setup() {
+                const isConnected = ref(false);
+                const towns = ref([]);
+                const selectedId = ref('');
+                const realtimeMap = ref({});
+                const forecastMap = ref({});
+                const currentStage = ref('seedling');
+                const isLocked = ref(false);
+
+                // --- 修改为你的 GitHub Pages 基础地址 ---
+                const base = "https://wangpengcard.github.io/Hailun_weather";
+
+                const STAGES = { seedling: '出苗拔节期', tasseling: '抽雄吐丝期', grain: '灌浆成熟期' };
+
+                const fetchData = async () => {
+                    try {
+                        const ts = `?t=${Date.now()}`;
+                        // 修改：由于是 Public 仓库，不再需要 Authorization Headers
+                        const [tRes, rRes, fRes] = await Promise.all([ 
+                            axios.get(`${base}/towns.csv${ts}`), 
+                            axios.get(`${base}/2026.json${ts}`), 
+                            axios.get(`${base}/forecasts.json${ts}`)
+                        ]);
+
+                        // 修改：直接处理请求结果，不再需要 base64 解码(atob)
+                        towns.value = tRes.data.split('\n').slice(1)
+                            .filter(r => r.includes(','))
+                            .map(r => ({ name: r.split(',')[1].trim(), id: r.split(',')[2].trim() }));
+                        
+                        // axios 会自动解析 JSON 文件为对象
+                        realtimeMap.value = typeof rRes.data === 'string' ? JSON.parse(rRes.data) : rRes.data; 
+                        forecastMap.value = typeof fRes.data === 'string' ? JSON.parse(fRes.data) : fRes.data;
+
+                        if(towns.value.length > 0) { 
+                            isConnected.value = true; 
+                            if(!selectedId.value) selectedId.value = towns.value[0].id; 
+                        }
+                    } catch (e) { 
+                        console.error("同步失败:", e);
+                        isConnected.value = false; 
+                    }
+                };
+
+                const currentData = computed(() => {
+                    const list = realtimeMap.value[selectedId.value] || [];
+                    return list.length > 0 ? list[list.length - 1] : {};
+                });
+
+                const riskMessage = computed(() => {
+                    if(!currentData.value.temp) return "数据同步中...";
+                    return "环境状况正常，作物持续生长。";
+                });
+
+                let myChart = null;
+                const renderChart = (data) => {
+                    if(!myChart) myChart = echarts.init(document.getElementById('chart'), 'dark');
+                    myChart.setOption({
+                        backgroundColor: 'transparent',
+                        tooltip: { trigger: 'axis' },
+                        legend: { data: ['温度', '降水概率'] },
+                        xAxis: { type: 'category', data: data.map(d => d.time) },
+                        yAxis: [
+                            { type: 'value', name: '温度(°C)', position: 'left' },
+                            { type: 'value', name: '概率(%)', position: 'right', max: 100 }
+                        ],
+                        series: [
+                            { name: '温度', type: 'line', data: data.map(d => d.temp), smooth: true, color: '#3b82f6' },
+                            { name: '降水概率', type: 'bar', yAxisIndex: 1, data: data.map(d => d.pop), color: '#1e40af' }
+                        ]
+                    });
+                };
+
+                watch(selectedId, (id) => { 
+                    renderChart(forecastMap.value[id] || []); 
+                });
+
+                onMounted(() => {
+                    fetchData();
+                    setInterval(fetchData, 600000); // 10分钟自动刷新
+                    window.onresize = () => myChart && myChart.resize();
+                });
+
+                return { isConnected, towns, selectedId, STAGES, currentStage, currentData, riskMessage };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
