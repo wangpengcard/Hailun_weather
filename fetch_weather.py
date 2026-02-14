@@ -5,12 +5,12 @@ import csv
 import time
 from datetime import datetime
 
-# 配置信息
+# 1. 配置信息 (从 GitHub Secrets 读取)
 API_KEY = os.getenv('OWM_API_KEY')
 BASE_URL = "https://api.openweathermap.org/data/2.5/onecall"
 
 def fetch_weather_data():
-    # 读取旧历史数据
+    # 读取旧历史数据，实现历史追加
     if os.path.exists('2026.json'):
         try:
             with open('2026.json', 'r', encoding='utf-8') as f:
@@ -22,16 +22,18 @@ def fetch_weather_data():
 
     forecast_map = {}
     
+    # 2. 读取乡镇列表
     try:
         with open('towns.csv', 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
             next(reader) 
-            towns = list(reader)
+            towns_list = list(reader)
     except Exception as e:
         print(f"读取 towns.csv 失败: {e}")
         return
 
-    for row in towns:
+    # 3. 循环请求 API
+    for row in towns_list:
         if len(row) < 5: continue
         name, town_id, lon, lat = row[1], row[2], row[3], row[4]
         
@@ -42,14 +44,27 @@ def fetch_weather_data():
         }
         
         try:
-            print(f"同步 {name} 数据...")
+            print(f"正在同步 {name} 的气象数据...")
             response = requests.get(BASE_URL, params=params)
             data = response.json()
             
-            # --- 实时数据处理 ---
-            curr = data.get('current', {})
-            # 定义标准表头字段
+            # API 状态检查
+            if "cod" in data and str(data["cod"]) != "200":
+                print(f"{name} API 报错: {data.get('message')}")
+                continue
+
+            # --- 严格遵循官方字段提取函数 (已移除 pop) ---
             def get_standard_entry(item, is_forecast=False):
+                # 处理 rain (官方格式: {"1h": mm})
+                rain_val = 0
+                if 'rain' in item:
+                    rain_val = item['rain'].get('1h', 0) if isinstance(item['rain'], dict) else item['rain']
+
+                # 处理 snow (官方格式: {"1h": mm})
+                snow_val = 0
+                if 'snow' in item:
+                    snow_val = item['snow'].get('1h', 0) if isinstance(item['snow'], dict) else item['snow']
+
                 return {
                     "town_name": name,
                     "town_id": town_id,
@@ -61,37 +76,49 @@ def fetch_weather_data():
                     "dew_point": item.get('dew_point'),
                     "clouds": item.get('clouds'),
                     "uvi": item.get('uvi'),
-                    "visibility": item.get('visibility', 10000), # 预测数据若无则默认10000
+                    "visibility": item.get('visibility', 10000), # 官方上限10km
                     "wind_speed": item.get('wind_speed'),
-                    "wind_gust": item.get('wind_gust', item.get('wind_speed')), # 预测若无阵风用风速代替
+                    "wind_gust": item.get('wind_gust', item.get('wind_speed')), # 官方标注 where available
                     "wind_deg": item.get('wind_deg'),
-                    "rain": item.get('rain', {}).get('1h', 0) if isinstance(item.get('rain'), dict) else item.get('rain', 0),
-                    "snow": item.get('snow', {}).get('1h', 0) if isinstance(item.get('snow'), dict) else item.get('snow', 0),
+                    "rain": rain_val,
+                    "snow": snow_val,
                     "weather_desc": item.get('weather', [{}])[0].get('description', ''),
-                    "pop": int(item.get('pop', 0) * 100) if is_forecast else 0, # 只有预测有降水概率
                     "flag": 1 if is_forecast else 0
                 }
 
-            # 写入历史记录
-            if town_id not in realtime_map: realtime_map[town_id] = []
-            realtime_map[town_id].append(get_standard_entry(curr, False))
-            realtime_map[town_id] = realtime_map[town_id][-720:]
+            # 处理实时记录 (写入 2026.json)
+            curr = data.get('current', {})
+            if curr:
+                if town_id not in realtime_map: realtime_map[town_id] = []
+                realtime_map[town_id].append(get_standard_entry(curr, False))
+                # 保持 720 条历史记录 (D30算法需要)
+                realtime_map[town_id] = realtime_map[town_id][-720:]
             
-            # --- 预测数据处理 ---
-            f_list = []
-            for hour in data.get('hourly', [])[:48]:
-                f_list.append(get_standard_entry(hour, True))
-            forecast_map[town_id] = f_list
+            # 处理预测数据 (写入 forecasts.json)
+            hourly = data.get('hourly', [])
+            if hourly:
+                f_list = []
+                for hour in hourly[:48]:
+                    f_list.append(get_standard_entry(hour, True))
+                forecast_map[town_id] = f_list
             
+            # 延时避开频率限制
             time.sleep(0.3)
+            
         except Exception as e:
-            print(f"{name} 失败: {e}")
+            print(f"{name} 运行失败: {e}")
 
-    # 保存
+    # 4. 写入压缩文件
     with open('2026.json', 'w', encoding='utf-8') as f:
         json.dump(realtime_map, f, ensure_ascii=False, separators=(',', ':'))
+
     with open('forecasts.json', 'w', encoding='utf-8') as f:
         json.dump(forecast_map, f, ensure_ascii=False, separators=(',', ':'))
 
+    print(f"同步完成。监控点: {len(realtime_map)} | 预测点: {len(forecast_map)}")
+
 if __name__ == "__main__":
-    fetch_weather_data()
+    if not API_KEY:
+        print("错误：未找到 OWM_API_KEY")
+    else:
+        fetch_weather_data()
