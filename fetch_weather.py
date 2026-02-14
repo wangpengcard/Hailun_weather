@@ -85,7 +85,7 @@ def fetch_weather_data():
     # --- D. 循环请求 API ---
     for row in towns_list:
         if len(row) < 5: continue
-        name, town_id, lon, lat = row[1], row[2], row[3], row[4]
+        name, town_id, lat, lon = row[1], row[2], row[3], row[4]
         
         params = {
             "lat": lat, "lon": lon,
@@ -145,3 +145,4 @@ if __name__ == "__main__":
         print("错误：未找到 OWM_API_KEY，请检查 GitHub Secrets 配置。")
     else:
         fetch_weather_data()
+
