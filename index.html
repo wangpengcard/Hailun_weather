@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>玉米种植环境逆境预测看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        :root {
+            --bg-body: #020617; --bg-panel: #1e293b; --text-main: #f8fcaf;
+            --text-dim: #94a3b8; --accent: #3b82f6; --danger: #ef4444;
+            --warning: #f59e0b; --success: #10b981; --neutral: #64748b;
+        }
+        * { box-sizing: border-box; }
+        body, html { 
+            margin: 0; padding: 0; width: 100vw; height: 100vh; 
+            overflow: hidden; font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: var(--bg-body); color: var(--text-main);
+        }
+        #app { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+        header { 
+            height: 45px; flex-shrink: 0; background: #000; 
+            border-bottom: 1px solid #334155; display: flex; 
+            align-items: center; padding: 0 15px; justify-content: space-between; 
+        }
+        main { flex: 1; display: flex; overflow: hidden; }
+        aside { 
+            width: 250px; flex-shrink: 0; background: var(--bg-panel); 
+            border-right: 1px solid #334155; display: flex; flex-direction: column; 
+            padding: 15px; gap: 15px;
+        }
+        .select-group label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 5px; }
+        .select-row { display: flex; align-items: center; gap: 5px; }
+        select { 
+            flex: 1; padding: 8px; background: #0f172a; color: #fff; 
+            border: 1px solid #334155; border-radius: 4px; font-size: 13px; 
+            outline: none; cursor: pointer; appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C2.185 5.355 2.403 5 2.801 5h10.398c.398 0 .616.355.35.658l-4.796 5.482a.5.5 0 0 1-.708 0z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 10px center;
+        }
+        .fix-btn { width: 32px; height: 32px; background: #334155; border: none; border-radius: 4px; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .fix-btn:hover { background: #475569; }
+        .calendar { background: #0f172a; border-radius: 8px; padding: 10px; border: 1px solid #475569; }
+        .cal-head { display: flex; gap: 5px; margin-bottom: 10px; }
+        .cal-head select { padding: 4px; font-size: 11px; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-size: 10px; }
+        .cal-date { height: 24px; line-height: 24px; position: relative; cursor: pointer; }
+        .cal-date.active { background: var(--accent); color: #fff; border-radius: 2px; }
+        .cal-date.has-risk::after { 
+            content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
+            width: 4px; height: 4px; background: var(--danger); border-radius: 50%;
+        }
+        .cal-date.empty { cursor: default; }
+        .diag-box {
+            flex: 1; background: rgba(15, 23, 42, 0.6); 
+            border-radius: 8px; border: 1px dashed #334155;
+            padding: 10px; overflow-y: auto; font-size: 11px; line-height: 1.6;
+        }
+        .diag-box::-webkit-scrollbar { width: 4px; }
+        .diag-box::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+        .diag-item { margin-bottom: 8px; padding-left: 10px; border-left: 2px solid var(--accent); }
+        .diag-danger { border-left-color: var(--danger); color: #fda4af; }
+        .diag-warning { border-left-color: var(--warning); color: #fde047; }
+        .diag-success { border-left-color: var(--success); color: #6ee7b7; }
+        .content { flex: 1; display: flex; flex-direction: column; padding: 15px; gap: 10px; overflow: hidden; }
+        .dashboard { 
+            display: grid; grid-template-columns: repeat(7, 1fr); 
+            gap: 10px; background: #0f172a; padding: 12px; 
+            border-radius: 8px; border: 1px solid #334155; flex-shrink: 0;
+        }
+        .light-box { text-align: center; }
+        .dot { width: 12px; height: 12px; border-radius: 50%; margin: 0 auto 5px; background: #334155; }
+        .dot.active { box-shadow: 0 0 10px currentColor; }
+        .l-txt { font-size: 11px; margin-bottom: 2px; }
+        .l-msg { font-size: 10px; color: var(--text-dim); }
+        #chart-main { flex: 1; background: #000; border-radius: 8px; border: 1px solid #334155; cursor: crosshair; }
+        .param-grid { 
+            background: var(--bg-panel); border-radius: 8px; border: 1px solid #334155; 
+            padding: 10px; display: grid; grid-template-columns: repeat(9, 1fr); gap: 8px;
+            flex-shrink: 0;
+        }
+        .p-card { text-align: center; border-right: 1px dotted #334155; overflow: hidden; min-width: 0; }
+        .p-card:nth-child(9n) { border-right: none; }
+        .p-lab { font-size: 10px; color: var(--text-dim); margin-bottom: 3px; white-space: nowrap; }
+        .p-val { font-size: 11px; font-weight: bold; color: var(--text-main); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+        
+        .modal-mask { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; justify-content:center; align-items:center; z-index:9999; }
+        .modal-win { background:var(--bg-panel); padding:20px; border-radius:8px; border:1px solid var(--accent); width:300px; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <header>
+        <div style="font-weight: bold; color: var(--accent);">玉米种植环境逆境预测看板</div>
+        <div style="font-size: 12px; color: var(--text-dim);">
+            状态: <span :style="{color: isConnected ? 'var(--success)' : 'var(--danger)'}">{{ isConnected ? '● 已连接' : '○ 尝试同步数据...' }}</span>
+            <span v-if="isLocked" style="margin-left:10px; color:var(--warning)">[ 指示线已锁定 ]</span>
+        </div>
+    </header>
+
+    <main>
+        <aside>
+            <div class="select-group">
+                <label>监测地点</label>
+                <select v-model="selectedId">
+                    <option v-for="t in towns" :key="t.id" :value="t.id">{{ t.name }}</option>
+                </select>
+            </div>
+            <div class="select-group">
+                <label>玉米生长阶段</label>
+                <div class="select-row">
+                    <select v-model="currentStage">
+                        <option v-for="s in stageList" :key="s" :value="s">{{ s }}{{ hasManualLock(s) ? ' 🔒' : '' }}</option>
+                    </select>
+                    <button class="fix-btn" @click="showFixModal = true" title="校正进入日期">🎯</button>
+                </div>
+            </div>
+            <div class="calendar">
+                <div class="cal-head">
+                    <select v-model="viewYear"><option v-for="y in [2025,2026]" :value="y">{{y}}年</option></select>
+                    <select v-model="viewMonth"><option v-for="m in 12" :value="m-1">{{m}}月</option></select>
+                </div>
+                <div class="cal-grid">
+                    <div style="color:var(--text-dim)" v-for="d in ['一','二','三','四','五','六','日']" :key="d">{{ d }}</div>
+                    <div v-for="(day, idx) in calDays" :key="idx" @click="clickCalDate(day)" :class="['cal-date', day.type === 'empty' ? 'empty' : '', day.isToday ? 'active' : '', day.hasRisk ? 'has-risk' : '']"> {{ day.val }} </div>
+                </div>
+            </div>
+            <div class="diag-box">
+                <div v-if="!isConnected" class="diag-item">正在同步 GitHub 最新采集数据...</div>
+                <div v-else-if="diagMsgs.length === 0" class="diag-item diag-success">当前环境参数理想。</div>
+                <div v-for="msg in diagMsgs" :key="msg.text" :class="['diag-item', msg.type]"> {{ msg.text }} </div>
+            </div>
+            <div style="font-size:10px; color:var(--text-dim); line-height:1.5;"> * 核心逻辑：D30盈亏+Stress倒伏模型<br> * 模式：GitHub Pages 公开部署版 </div>
+        </aside>
+
+        <div class="content">
+            <div class="dashboard">
+                <div class="light-box" v-for="l in risks" :key="l.name">
+                    <div class="l-txt">{{ l.name }}</div>
+                    <div :class="['dot', isConnected ? 'active' : '']" :style="{ color: isConnected ? l.color : '#334155', background: 'currentColor' }"></div>
+                    <div class="l-msg">{{ isConnected ? l.status : '--' }}</div>
+                </div>
+            </div>
+            <div id="chart-main"></div>
+            <div class="param-grid">
+                <div class="p-card"><div class="p-lab">温度</div><div class="p-val">{{ sel.temp ?? '--' }}°C</div></div>
+                <div class="p-card"><div class="p-lab">降雨量</div><div class="p-val">{{ sel.rain ?? '0' }}mm</div></div>
+                <div class="p-card"><div class="p-lab">风速</div><div class="p-val">{{ sel.wind_speed ?? '--' }} m/s</div></div>
+                <div class="p-card"><div class="p-lab">风力</div><div class="p-val">{{ sel.wf || '--' }}</div></div>
+                <div class="p-card"><div class="p-lab">风向</div><div class="p-val"> <span v-if="sel.dir" :style="{display:'inline-block', transform:'rotate('+sel.wind_deg+'deg)'}">↓</span> {{ sel.dir || '--' }} </div></div>
+                <div class="p-card"><div class="p-lab">阵风</div><div class="p-val">{{ sel.wind_gust ?? '--' }} m/s</div></div>
+                <div class="p-card"><div class="p-lab">相对湿度</div><div class="p-val">{{ sel.humidity ?? '--' }}%</div></div>
+                <div class="p-card"><div class="p-lab">露点温度</div><div class="p-val">{{ sel.dew_point ?? '--' }}°C</div></div>
+                <div class="p-card"><div class="p-lab">D30盈亏</div><div class="p-val">{{ sel.d30 || '--' }}</div></div>
+                <div class="p-card"><div class="p-lab">天气实况</div><div class="p-val">{{ sel.weather_desc || '--' }}</div></div>
+                <div class="p-card"><div class="p-lab">紫外线指数</div><div class="p-val">{{ sel.uvi ?? '--' }}</div></div>
+                <div class="p-card"><div class="p-lab">能见度</div><div class="p-val">{{ sel.visibility ? sel.visibility + 'm' : '--' }}</div></div>
+                <div class="p-card"><div class="p-lab">云量</div><div class="p-val">{{ sel.clouds ?? '--' }}%</div></div>
+                <div class="p-card"><div class="p-lab">大气压</div><div class="p-val">{{ sel.pressure ? sel.pressure + 'hPa' : '--' }}</div></div>
+                <div class="p-card"><div class="p-lab">降雪</div><div class="p-val">{{ sel.snow ?? '0' }}mm</div></div>
+                <div class="p-card"><div class="p-lab">时间点</div><div class="p-val">{{ sel.time || '--' }}</div></div>
+                <div class="p-card"><div class="p-lab">日期</div><div class="p-val">{{ sel.date || '--' }}</div></div>
+                <div class="p-card"><div class="p-lab">数据状态</div><div class="p-val">{{ sel.flag_desc || '--' }}</div></div>
+            </div>
+        </div>
+    </main>
+
+    <div v-if="showFixModal" class="modal-mask">
+        <div class="modal-win">
+            <h4 style="margin:0 0 15px 0">确认进入 {{currentStage}} 的日期</h4>
+            <div style="margin-bottom:15px">
+                <input type="date" v-model="fixDate" style="width:100%; padding:8px; background:#000; color:#fff; border:1px solid #334155">
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:10px">
+                <button @click="showFixModal = false" style="padding:5px 15px; background:#475569; border:none; color:white">取消</button>
+                <button @click="saveManualFix" style="padding:5px 15px; background:var(--accent); border:none; color:white">确定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp, ref, onMounted, reactive, watch, computed } = Vue;
+
+createApp({
+    setup() {
+        const isConnected = ref(false);
+        const isLocked = ref(false);
+        const base = "."; 
+        
+        const towns = ref([]);
+        const selectedId = ref('');
+        const realtimeMap = ref({});
+        const forecastMap = ref({});
+        const manualFixes = ref(JSON.parse(localStorage.getItem('corn_fixes') || '[]'));
+        const diagMsgs = ref([]); 
+
+        const stageList = ["播种期", "VE", "V1", "V2", "V3", "V4", "V5", "V6拔节", "V7", "V8", "V9", "V10", "V11", "V12大喇叭口", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "VT抽穗", "R1吐丝", "R2水泡", "R3乳熟", "R4蜡熟", "R5凹陷", "R6完熟"];
+        const currentStage = ref("V12大喇叭口");
+        const kcConfig = { "播种期":0.3, "VE":0.45, "V6拔节":0.75, "V12大喇叭口":0.95, "VT抽穗":1.2, "R2水泡":1.1, "R4蜡熟":0.9, "R6完熟":0.6 };
+        
+        const now = new Date();
+        const viewYear = ref(now.getFullYear());
+        const viewMonth = ref(now.getMonth());
+        
+        const showFixModal = ref(false);
+        const fixDate = ref(now.toISOString().split('T')[0]);
+
+        const sel = reactive({ 
+            temp:null, rain:null, wind_speed:null, wind_gust:null, dir:null, wind_deg:0, 
+            humidity:null, pressure:null, dew_point:null, weather_desc:null, uvi:null, 
+            visibility:null, clouds:null, snow:null, wf:null, flag_desc:null, 
+            time:null, date:null, d30: null 
+        });
+
+        const risks = ref([ 
+            {name:'干旱', color:'#64748b', status:'统计中'}, 
+            {name:'高温', color:'#10b981', status:'正常'}, 
+            {name:'低温', color:'#64748b', status:'统计中'}, 
+            {name:'倒伏', color:'#10b981', status:'低风险'}, 
+            {name:'水涝', color:'#10b981', status:'正常'}, 
+            {name:'病虫害', color:'#10b981', status:'平稳'}, 
+            {name:'飞防评分', color:'#64748b', status:'-'} 
+        ]);
+
+        let chart = null;
+
+        const getWindDirText = (deg) => {
+            if (deg === null || deg === undefined) return null;
+            const val = Math.floor((deg / 22.5) + 0.5);
+            const arr = ["北", "北东北", "东北", "东东北", "东", "东东南", "东南", "南东南", "南", "南西南", "西南", "西西南", "西", "西西北", "西北", "北西北"];
+            return arr[(val % 16)] + "风";
+        };
+
+        const getBeaufort = (ms) => {
+            if (ms === null || ms === undefined) return null;
+            if (ms < 0.3) return 0; if (ms < 1.6) return 1; if (ms < 3.4) return 2; if (ms < 5.5) return 3;
+            if (ms < 8.0) return 4; if (ms < 10.8) return 5; if (ms < 13.9) return 6; if (ms < 17.2) return 7;
+            if (ms < 20.8) return 8; if (ms < 24.5) return 9; if (ms < 28.5) return 10; if (ms < 32.7) return 11;
+            return 12;
+        };
+
+        const calDays = computed(() => {
+            const first = new Date(viewYear.value, viewMonth.value, 1);
+            let startOffset = first.getDay(); 
+            startOffset = startOffset === 0 ? 6 : startOffset - 1;
+            const total = new Date(viewYear.value, viewMonth.value + 1, 0).getDate();
+            const days = [];
+            for (let i = 0; i < startOffset; i++) days.push({ type: 'empty' });
+            const townData = [...(realtimeMap.value[selectedId.value] || []), ...(forecastMap.value[selectedId.value] || [])];
+            for (let i = 1; i <= total; i++) {
+                const dateStr = `${viewYear.value}-${String(viewMonth.value + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                const dayData = townData.filter(d => d.date === dateStr);
+                const hasRisk = dayData.some(d => (d.wind_gust || d.wind_speed || 0) > 10.8 || d.temp >= 32);
+                days.push({ val: i, type: 'day', dateStr, isToday: dateStr === now.toISOString().split('T')[0], hasRisk, dayData });
+            }
+            return days;
+        });
+
+        const hasManualLock = (stage) => manualFixes.value.some(f => f.townId === selectedId.value && f.stage === stage);
+
+        const saveManualFix = () => {
+            const idx = manualFixes.value.findIndex(f => f.townId === selectedId.value && f.stage === currentStage.value);
+            if(idx > -1) manualFixes.value[idx].date = fixDate.value;
+            else manualFixes.value.push({ townId: selectedId.value, stage: currentStage.value, date: fixDate.value });
+            localStorage.setItem('corn_fixes', JSON.stringify(manualFixes.value));
+            showFixModal.value = false;
+            resetToRealtime();
+        };
+
+        const clickCalDate = (day) => {
+            if (!day.val || !day.dayData || day.dayData.length === 0) return;
+            let msg = `【历史回溯】${day.dateStr}：`;
+            if (day.hasRisk) {
+                const peakWind = day.dayData.sort((a,b) => (b.wind_gust||0) - (a.wind_gust||0))[0];
+                const peakTemp = day.dayData.sort((a,b) => (b.temp||0) - (a.temp||0))[0];
+                if((peakWind.wind_gust||0) > 10.8) msg += `大风风险(${getBeaufort(peakWind.wind_gust)}级)；`;
+                if(peakTemp.temp >= 32) msg += `高温风险(${peakTemp.temp}℃)；`;
+            } else msg += `环境数据平稳，无异常。`;
+            diagMsgs.value = [{ type: day.hasRisk ? 'diag-danger' : 'diag-success', text: msg }];
+        };
+
+        const renderChart = (data = []) => {
+            if(!chart) chart = echarts.init(document.getElementById('chart-main'), 'light');
+            if(data.length === 0) return;
+            chart.setOption({
+                title: { text: '未来趋势预测 (悬停查看详情)', textStyle: {color: '#94a3b8', fontSize: 11}, left: 10, top: 10 },
+                tooltip: { trigger: 'axis' },
+                grid: { top: 60, bottom: 30, left: 45, right: 45 },
+                xAxis: { 
+                    type: 'category', 
+                    data: data.map(d => d.time), 
+                    axisLabel: {color:'#94a3b8', fontSize:10} 
+                },
+                yAxis: [
+                    { type:'value', name:'°C', axisLabel:{color:'#94a3b8'}, splitLine: { show: true, lineStyle: { color: '#334155', type: 'dashed' } } },
+                    { type:'value', name:'mm', position:'right', min: 0, splitLine: { show: false } }
+                ],
+                legend: { data: ['预测温度', '预测降雨'], textStyle: { color: '#94a3b8' } },
+                series: [
+                    { name:'预测温度', type:'line', data:data.map(d => d.temp), smooth:true, itemStyle:{color:'#3b82f6'} },
+                    { name:'预测降雨', type:'bar', yAxisIndex:1, data:data.map(d => d.rain || 0), itemStyle:{color:'#006400', opacity: 0.6} }
+                ]
+            });
+
+            chart.getZr().off('click');
+            chart.getZr().on('click', (params) => {
+                const point = [params.offsetX, params.offsetY];
+                if (chart.containPixel('grid', point)) isLocked.value = !isLocked.value;
+                else { isLocked.value = false; resetToRealtime(); }
+            });
+
+            chart.on('updateAxisPointer', (event) => {
+                if (isLocked.value) return;
+                const p = event.axesInfo && event.axesInfo[0];
+                if (p && p.value !== undefined) {
+                    const item = data[p.value];
+                    if (item) { updateDetail(item); judgeRisks(item); }
+                }
+            });
+        };
+
+        const judgeRisks = (currentItem) => {
+            if(!currentItem) return;
+            let msgs = [];
+            const fullSeries = (realtimeMap.value[selectedId.value] || [])
+                .sort((a,b) => new Date(a.date+' '+a.time) - new Date(b.date+' '+b.time));
+            const idx = fullSeries.findIndex(item => item.date === currentItem.date && item.time === currentItem.time);
+            if(idx === -1) return;
+            const getPastData = (hrs) => fullSeries.slice(Math.max(0, idx - hrs), idx + 1);
+
+            // 1. 干旱胁迫 (D30)
+            const d30Window = getPastData(720); // 30天
+            if (d30Window.length < 120) {
+                risks.value[0].status = '积累中'; risks.value[0].color = '#64748b'; sel.d30 = '--';
+            } else {
+                let d30Sum = 0;
+                const kc = kcConfig[currentStage.value] || 0.85;
+                d30Window.forEach(h => {
+                    const rainEff = (h.rain || 0) > 10 ? (h.rain * 0.85) : (h.rain || 0);
+                    const et0 = (h.temp * 0.2) * (1 + (h.wind_speed || 0) * 0.1); 
+                    d30Sum += (rainEff - et0 * kc);
+                });
+                sel.d30 = d30Sum.toFixed(1) + 'mm';
+                risks.value[0].status = d30Sum < -70 ? '重度干旱' : '适宜';
+                risks.value[0].color = d30Sum < -70 ? '#ef4444' : '#10b981';
+                if(d30Sum < -70) msgs.push({type:'diag-danger', text:'触发重度干旱预警，水分亏缺严重。'});
+            }
+
+            // 2. 高温热害
+            const heatWindow = getPastData(3);
+            const isHeat = heatWindow.length >= 3 && heatWindow.every(h => h.temp >= 32);
+            const isUviScorching = (currentItem.uvi || 0) > 6 && (currentItem.clouds || 0) < 10;
+            risks.value[1].status = (isHeat || isUviScorching) ? '有风险' : '正常';
+            risks.value[1].color = (isHeat || isUviScorching) ? '#ef4444' : '#10b981';
+            if(isHeat) msgs.push({type:'diag-danger', text:'检测到连续高温，谨防热害。'});
+
+            // 3. 倒伏模型
+            const rain24 = getPastData(24).reduce((a,c) => a + (c.rain||0), 0);
+            const stageFactor = stageList.indexOf(currentStage.value) >= stageList.indexOf('V12大喇叭口') ? 1.5 : 1.0;
+            const windDegRad = (currentItem.wind_deg || 0) * Math.PI / 180;
+            const sideWindFix = 1 + 0.2 * Math.abs(Math.sin(windDegRad)); // 侧风修正
+            const gust = currentItem.wind_gust || currentItem.wind_speed || 0;
+            const stress = gust * stageFactor * sideWindFix + (rain24 * 0.1);
+            risks.value[3].status = stress > 15 ? '高风险' : '低风险';
+            risks.value[3].color = stress > 15 ? '#ef4444' : '#10b981';
+
+            // 4. 低温冷害
+            const freezeWindow = getPastData(48);
+            const isFreeze = freezeWindow.length >= 48 && freezeWindow.every(h => h.temp < 10);
+            risks.value[2].status = isFreeze ? '僵苗风险' : '正常';
+            risks.value[2].color = isFreeze ? '#ef4444' : '#10b981';
+
+            // 5. 洪涝与水淹
+            const rain72 = getPastData(72).reduce((a,c) => a + (c.rain||0), 0);
+            const isFlood = rain24 > 50 || rain72 > 150;
+            risks.value[4].status = isFlood ? '有风险' : '正常';
+            risks.value[4].color = isFlood ? '#ef4444' : '#10b981';
+
+            // 6. 飞防评分
+            let score = 100;
+            const gustVal = currentItem.wind_gust || currentItem.wind_speed || 0;
+            if(gustVal > 8 || currentItem.temp > 35 || currentItem.humidity < 30) score = 0;
+            else {
+                if(currentItem.temp - (currentItem.dew_point||0) < 2.5) score -= 25;
+                if((currentItem.uvi||0) > 5) score -= 15;
+                if(currentItem.temp > 30) score -= 20;
+            }
+            risks.value[6].status = score + '分';
+            risks.value[6].color = score >= 70 ? '#10b981' : (score >= 40 ? '#f59e0b' : '#ef4444');
+
+            // 7. 病虫害预警
+            const isBigSpot = currentItem.temp >= 20 && currentItem.temp <= 25 && currentItem.humidity > 90;
+            risks.value[5].status = isBigSpot ? '高发期' : '平稳';
+            risks.value[5].color = isBigSpot ? '#f59e0b' : '#10b981';
+
+            diagMsgs.value = msgs;
+        };
+
+        const updateDetail = (r) => {
+            if (!r) return;
+            Object.assign(sel, { 
+                temp: r.temp, 
+                rain: r.rain, 
+                wind_speed: r.wind_speed, 
+                wind_gust: r.wind_gust,
+                dir: getWindDirText(r.wind_deg), 
+                wind_deg: r.wind_deg, 
+                humidity: r.humidity, 
+                pressure: r.pressure, 
+                dew_point: r.dew_point, 
+                weather_desc: r.weather_desc, 
+                uvi: r.uvi, 
+                visibility: r.visibility, 
+                clouds: r.clouds, 
+                snow: r.snow,
+                flag_desc: r.flag === 1 ? '未来预测' : '历史实况', 
+                time: r.time, 
+                date: r.date 
+            });
+            const b = getBeaufort(r.wind_speed);
+            sel.wf = b !== null ? b + '级' : '--'; 
+        };
+
+        const resetToRealtime = () => {
+            if (isLocked.value) return;
+            const h = realtimeMap.value[selectedId.value] || [];
+            if(h.length > 0) { 
+                const last = h[h.length - 1];
+                updateDetail(last); judgeRisks(last); 
+            }
+        };
+
+        const loadData = async () => {
+            try {
+                const ts = `?t=${Date.now()}`;
+                const [tRes, rRes, fRes] = await Promise.all([ 
+                    axios.get(`${base}/towns.csv${ts}`), 
+                    axios.get(`${base}/2026.json${ts}`), 
+                    axios.get(`${base}/forecasts.json${ts}`)
+                ]);
+                
+                towns.value = tRes.data.split('\n').slice(1).filter(r => r.includes(',')).map(r => ({ name: r.split(',')[1].trim(), id: r.split(',')[2].trim() }));
+                realtimeMap.value = typeof rRes.data === 'string' ? JSON.parse(rRes.data) : rRes.data; 
+                forecastMap.value = typeof fRes.data === 'string' ? JSON.parse(fRes.data) : fRes.data;
+                
+                if(towns.value.length > 0) { 
+                    isConnected.value = true; 
+                    selectedId.value = towns.value[0].id; 
+                }
+            } catch (e) { 
+                console.error("同步失败:", e);
+                isConnected.value = false; 
+            }
+        };
+
+        watch(selectedId, (id) => { 
+            isLocked.value = false; 
+            renderChart(forecastMap.value[id] || []); 
+            resetToRealtime(); 
+        });
+        watch(currentStage, resetToRealtime);
+        onMounted(loadData);
+        return { towns, selectedId, stageList, currentStage, isConnected, isLocked, risks, sel, diagMsgs, calDays, viewYear, viewMonth, clickCalDate, hasManualLock, showFixModal, fixDate, saveManualFix };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
