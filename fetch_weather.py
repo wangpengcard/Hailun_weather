@@ -4,11 +4,15 @@ import json
 import csv
 import time
 from datetime import datetime
+import pytz
 
 # 1. 配置信息
 API_KEY = os.getenv('OWM_API_KEY')
 # 必须使用 3.0 接口
 BASE_URL = "https://api.openweathermap.org/data/3.0/onecall"
+
+# 定义北京时区
+BEIJING_TZ = pytz.timezone('Asia/Shanghai')
 
 def fetch_weather_data():
     # --- A. 数据初始化 ---
@@ -37,9 +41,9 @@ def fetch_weather_data():
     def get_standard_entry(item, name, town_id, is_forecast=False):
         """
         严格遵循官方 API 3.0 字段提取规则
+        修改点：将 dt 时间戳强制转换为北京时间
         """
         # 1. 处理降水 (rain.1h) 和 降雪 (snow.1h)
-        # 规则：存在则取值，不存在则记为 0
         rain_val = 0
         if 'rain' in item:
             rain_val = item['rain'].get('1h', 0) if isinstance(item['rain'], dict) else item['rain']
@@ -49,23 +53,26 @@ def fetch_weather_data():
             snow_val = item['snow'].get('1h', 0) if isinstance(item['snow'], dict) else item['snow']
 
         # 2. 处理阵风 (wind_gust)
-        # 规则：存在则取值，不存在则记为 0
         wind_gust = item.get('wind_gust', 0)
 
         # 3. 处理能见度 (visibility)
-        # 规则：存在则取值，不存在则记为官方最大值 10000
         visibility = item.get('visibility', 10000)
 
         # 4. 获取中文描述 (lang=zh_cn)
         weather_list = item.get('weather', [])
         desc = weather_list[0].get('description', '') if weather_list else ''
 
-        # 5. 构建输出字典 (排除 hourly.pop)
+        # --- 修改时区处理逻辑 ---
+        # 将原始时间戳转换为带 UTC 时区的 datetime 对象，再转换至北京时区
+        dt_utc = datetime.fromtimestamp(item.get('dt'), pytz.utc)
+        dt_beijing = dt_utc.astimezone(BEIJING_TZ)
+
+        # 5. 构建输出字典
         return {
             "town_name": name,
             "town_id": town_id,
-            "date": datetime.fromtimestamp(item.get('dt')).strftime('%Y-%m-%d'),
-            "time": datetime.fromtimestamp(item.get('dt')).strftime('%H:%M'),
+            "date": dt_beijing.strftime('%Y-%m-%d'),
+            "time": dt_beijing.strftime('%H:%M'),
             "temp": item.get('temp'),
             "pressure": item.get('pressure'),
             "humidity": item.get('humidity'),
@@ -111,7 +118,7 @@ def fetch_weather_data():
                     realtime_map[town_id] = []
                 
                 realtime_map[town_id].append(get_standard_entry(curr, name, town_id, False))
-                # 保持 720 条历史记录 (D30算法需要)
+                # 保持 720 条历史记录
                 realtime_map[town_id] = realtime_map[town_id][-720:]
             
             # 2. 处理逐小时预测数据 (重写 forecast_map)
@@ -122,7 +129,7 @@ def fetch_weather_data():
                     f_list.append(get_standard_entry(hour, name, town_id, True))
                 forecast_map[town_id] = f_list
             
-            # 延时避开频率限制 (One Call 3.0 建议)
+            # 延时避开频率限制
             time.sleep(0.2)
             
         except Exception as e:
@@ -145,4 +152,3 @@ if __name__ == "__main__":
         print("错误：未找到 OWM_API_KEY，请检查 GitHub Secrets 配置。")
     else:
         fetch_weather_data()
-
