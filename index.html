@@ -421,15 +421,37 @@ createApp({
             risks.value[6].status = flyScore + '分';
             risks.value[6].color = flyScore >= 70 ? '#10b981' : (flyScore >= 40 ? '#f59e0b' : '#ef4444');
 
-            // 7. 病虫害预警矩阵 
+            // 7. 病虫害预警矩阵 (增强版)
             let pests = [];
-            // 大斑病：V12-R4, 20-25℃, 湿度>90%
+            
+            // A. 大斑病：V12-R4, 20-25℃, 湿度>90%
             if (stageIdx >= stageList.indexOf('V12大喇叭口') && stageIdx <= stageList.indexOf('R4蜡熟')) {
                 if (currentItem.temp >= 20 && currentItem.temp <= 25 && currentItem.humidity > 90) pests.push('大斑病');
             }
-            // 红蜘蛛：干旱(D30<-50) + 高温(T>32)
+
+            // B. 灰斑病：R1-R5, 露点差<2℃ (高湿) + 弱光 (多云)
+            if (stageIdx >= stageList.indexOf('R1吐丝') && stageIdx <= stageList.indexOf('R5凹陷')) {
+                const isHumid = (currentItem.temp - (currentItem.dew_point || 0)) < 2;
+                const isOvercast = (currentItem.clouds || 0) > 70 || (currentItem.uvi || 0) < 3;
+                if (isHumid && isOvercast) pests.push('灰斑病');
+            }
+
+            // C. 丝黑穗病：播种-V5, 土温偏高(空气20℃+) + 偏干(D30亏缺)
+            if (stageIdx <= stageList.indexOf('V5')) {
+                if (currentItem.temp > 20 && parseFloat(sel.d30) < -30) pests.push('丝黑穗病');
+            }
+
+            // D. 粘虫：V6-R2, 大雨后骤晴 + 适温高湿
+            if (stageIdx >= stageList.indexOf('V6拔节') && stageIdx <= stageList.indexOf('R2水泡')) {
+                const pastRain = getPastData(24).some(h => (h.rain || 0) > 10); // 过去24h有过大雨
+                const isSunnyNow = (currentItem.clouds || 0) < 40; // 现已转晴
+                if (pastRain && isSunnyNow && currentItem.temp >= 23 && currentItem.temp <= 30 && currentItem.humidity > 75) pests.push('粘虫');
+            }
+
+            // E. 红蜘蛛：干旱(D30<-50) + 高温(T>32)
             if (parseFloat(sel.d30) < -50 && currentItem.temp > 32) pests.push('红蜘蛛');
-            // 玉米螟：V12/VT, 湿度>70%
+
+            // F. 玉米螟：V12/VT, 湿度>70% (利于产卵孵化)
             if ((stageIdx === stageList.indexOf('V12大喇叭口') || stageIdx === stageList.indexOf('VT抽穗')) && currentItem.humidity > 70) pests.push('玉米螟');
 
             risks.value[5].status = pests.length > 0 ? pests.join('/') : '平稳';
@@ -509,3 +531,4 @@ createApp({
 </script>
 </body>
 </html>
+
