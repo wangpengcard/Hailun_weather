@@ -297,7 +297,7 @@ createApp({
                 },
                 yAxis: [
                     { type:'value', name:'°C', axisLabel:{color:'#94a3b8'}, splitLine: { show: true, lineStyle: { color: '#334155', type: 'dashed' } } },
-                    { type:'value', name:'mm', position:'right', min: 0, splitLine: { show: false } }
+                    { type:'value', name:'mm', position:'right', min: 0, max: (v) => v.max < 10 ? 10 : null, splitLine: { show: false } }
                 ],
                 legend: { data: ['预测温度', '预测降雨'], textStyle: { color: '#94a3b8' } },
                 series: [
@@ -531,4 +531,5 @@ createApp({
 </script>
 </body>
 </html>
+
 
